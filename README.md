@@ -25,3 +25,63 @@ Trading automation middleware focused on the MEXC Futures market. The system rec
 ```bash
 git clone https://github.com/rafael-silvaa/mexc-trading-bot.git
 cd mexc-trading-bot
+```
+
+**2. Create and activate a virtual environment (venv):**
+
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+**3. Install dependencies:**
+
+```bash
+pip install -r requirements.txt
+```
+
+**4. Configure Environment Variables:**
+
+Create a .env file in the root of the project with your credentials:
+
+```
+MEXC_API_KEY=your_api_key_here
+MEXC_SECRET_KEY=your_secret_key_here
+ENVIRONMENT=testnet # Change to 'mainnet' in production
+PORT=5000
+```
+
+## Payload Structure (Webhook)
+
+The server expects to receive a POST request with a JSON payload in the following format:
+
+```JSON
+{
+  "action": "LONG",
+  "ticker": "BTCUSDT.P",
+  "price": 65000.50
+}
+```
+* action: LONG or SHORT
+* ticker: The pair symbol (must include MEXC's correct notation for Perpetuals).
+* price: The closing price of the candle at the moment the trigger occurred.
+
+## Security Considerations (Cyber)
+
+Since the endpoint will be publicly exposed to receive TradingView Webhooks, it is strongly recommended to apply the following security layers to the final infrastructure:
+
+**Payload Validation:** The backend should immediately discard requests that do not match the strict JSON structure or unmonitored tickers.
+
+**IP Whitelisting:** Configure the firewall (e.g., iptables or ufw) to allow ingress on the Webhook port only from the official TradingView IP list.
+
+**Rate Limiting:** Implement API call limits and cooldowns to prevent opening multiple identical orders due to network latency or duplicate webhooks.
+
+## Execution (Development Environment)
+
+To start the server locally:
+
+```bash
+python main.py
+```
+
+The server will listen on http://127.0.0.1:5000/webhook. To test locally, you can use tools like Postman or ngrok to expose your local port to the internet.
