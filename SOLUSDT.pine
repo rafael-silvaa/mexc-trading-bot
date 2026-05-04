@@ -1,46 +1,41 @@
 //@version=5
-strategy("MEXC Pullback Bot - SOLUSDT v2.0", overlay=true, calc_on_every_tick=false, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=5, commission_type=strategy.commission.percent, commission_value=0.05)
+strategy("MEXC Breakout Bot - SOLUSDT v3.0", overlay=true, calc_on_every_tick=false, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=5, commission_type=strategy.commission.percent, commission_value=0.05)
 
-// === INPUTS PARA OTIMIZAÇÃO (UI) ===
+// === INPUTS ===
+lookback = input.int(20, title="Períodos de Rompimento (Donchian)")
+vol_length = input.int(20, title="Períodos Média de Volume")
 sl_mult = input.float(2.0, title="Multiplicador do Stop Loss (ATR)", step=0.1)
 rr_ratio = input.float(2.0, title="Risco/Retorno (Take Profit)", step=0.1)
-adx_threshold = input.int(20, title="Filtro ADX (Mínimo para Tendência)")
-rsi_long_trigger = input.int(45, title="RSI Trigger Long")
-rsi_short_trigger = input.int(55, title="RSI Trigger Short")
 
 // === INDICADORES ===
 ema200 = ta.ema(close, 200)
-ema50 = ta.ema(close, 50)
-rsi = ta.rsi(close, 14)
 atr = ta.atr(14)
+vol_ma = ta.sma(volume, vol_length)
 
-// Lógica ADX para Filtro de Lateralização
-[diplus, diminus, adx] = ta.dmi(14, 14)
+// Canais de Donchian (Calcula a Máxima e Mínima dos últimos X períodos)
+// Usamos [1] para olhar para o passado e não incluir a vela que está a formar
+highest_high = ta.highest(high[1], lookback) 
+lowest_low = ta.lowest(low[1], lookback)
 
+plot(highest_high, color=color.green, title="Resistência", style=plot.style_stepline)
+plot(lowest_low, color=color.red, title="Suporte", style=plot.style_stepline)
 plot(ema200, color=color.white, title="EMA 200", linewidth=2)
-plot(ema50, color=color.blue, title="EMA 50", linewidth=1)
 
-// === LÓGICA BOOLEANA ===
-// Só operamos se o mercado tiver uma tendência clara (ADX > threshold)
-trend_active = adx > adx_threshold
+// === LÓGICA BOOLEANA (BREAKOUT) ===
+// Confirmação de anomalia de volume
+vol_spike = volume > vol_ma
 
-// LONG: Tendência de alta, pullback na EMA50, RSI cruza para cima e ADX forte.
-long_trend = close > ema200
-long_pullback = low <= ema50
-long_trigger = ta.crossover(rsi, rsi_long_trigger)
-longCond = long_trend and long_pullback and long_trigger and trend_active
+// LONG: Acima da EMA200, preço fecha ACIMA da resistência, COM volume extra.
+longCond = (close > ema200) and (close > highest_high) and vol_spike
 
-// SHORT: Tendência de baixa, pullback na EMA50, RSI cruza para baixo e ADX forte.
-short_trend = close < ema200
-short_pullback = high >= ema50
-short_trigger = ta.crossunder(rsi, rsi_short_trigger)
-shortCond = short_trend and short_pullback and short_trigger and trend_active
+// SHORT: Abaixo da EMA200, preço fecha ABAIXO do suporte, COM volume extra.
+shortCond = (close < ema200) and (close < lowest_low) and vol_spike
 
 // === VARIÁVEIS DE ESTADO ===
 var float sl = na
 var float tp = na
 
-// === MOTOR DE EXECUÇÃO: LONG ===
+// === MOTOR DE EXECUÇÃO ===
 if (longCond and strategy.position_size == 0)
     sl := close - (atr * sl_mult)
     tp := close + ((close - sl) * rr_ratio) 
@@ -49,7 +44,6 @@ if (longCond and strategy.position_size == 0)
     strategy.entry("Long", strategy.long, alert_message=json_payload)
     strategy.exit("Exit Long", "Long", stop=sl, limit=tp)
 
-// === MOTOR DE EXECUÇÃO: SHORT ===
 if (shortCond and strategy.position_size == 0)
     sl := close + (atr * sl_mult)
     tp := close - ((sl - close) * rr_ratio)
