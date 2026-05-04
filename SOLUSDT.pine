@@ -1,0 +1,59 @@
+//@version=5
+strategy("MEXC Pullback Bot - SOLUSDT v2.0", overlay=true, calc_on_every_tick=false, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=5, commission_type=strategy.commission.percent, commission_value=0.05)
+
+// === INPUTS PARA OTIMIZAÇÃO (UI) ===
+sl_mult = input.float(2.0, title="Multiplicador do Stop Loss (ATR)", step=0.1)
+rr_ratio = input.float(2.0, title="Risco/Retorno (Take Profit)", step=0.1)
+adx_threshold = input.int(20, title="Filtro ADX (Mínimo para Tendência)")
+rsi_long_trigger = input.int(45, title="RSI Trigger Long")
+rsi_short_trigger = input.int(55, title="RSI Trigger Short")
+
+// === INDICADORES ===
+ema200 = ta.ema(close, 200)
+ema50 = ta.ema(close, 50)
+rsi = ta.rsi(close, 14)
+atr = ta.atr(14)
+
+// Lógica ADX para Filtro de Lateralização
+[diplus, diminus, adx] = ta.dmi(14, 14)
+
+plot(ema200, color=color.white, title="EMA 200", linewidth=2)
+plot(ema50, color=color.blue, title="EMA 50", linewidth=1)
+
+// === LÓGICA BOOLEANA ===
+// Só operamos se o mercado tiver uma tendência clara (ADX > threshold)
+trend_active = adx > adx_threshold
+
+// LONG: Tendência de alta, pullback na EMA50, RSI cruza para cima e ADX forte.
+long_trend = close > ema200
+long_pullback = low <= ema50
+long_trigger = ta.crossover(rsi, rsi_long_trigger)
+longCond = long_trend and long_pullback and long_trigger and trend_active
+
+// SHORT: Tendência de baixa, pullback na EMA50, RSI cruza para baixo e ADX forte.
+short_trend = close < ema200
+short_pullback = high >= ema50
+short_trigger = ta.crossunder(rsi, rsi_short_trigger)
+shortCond = short_trend and short_pullback and short_trigger and trend_active
+
+// === VARIÁVEIS DE ESTADO ===
+var float sl = na
+var float tp = na
+
+// === MOTOR DE EXECUÇÃO: LONG ===
+if (longCond and strategy.position_size == 0)
+    sl := close - (atr * sl_mult)
+    tp := close + ((close - sl) * rr_ratio) 
+    
+    json_payload = '{"action": "LONG", "ticker": "' + syminfo.ticker + '", "price": ' + str.tostring(close) + '}'
+    strategy.entry("Long", strategy.long, alert_message=json_payload)
+    strategy.exit("Exit Long", "Long", stop=sl, limit=tp)
+
+// === MOTOR DE EXECUÇÃO: SHORT ===
+if (shortCond and strategy.position_size == 0)
+    sl := close + (atr * sl_mult)
+    tp := close - ((sl - close) * rr_ratio)
+    
+    json_payload = '{"action": "SHORT", "ticker": "' + syminfo.ticker + '", "price": ' + str.tostring(close) + '}'
+    strategy.entry("Short", strategy.short, alert_message=json_payload)
+    strategy.exit("Exit Short", "Short", stop=sl, limit=tp)
