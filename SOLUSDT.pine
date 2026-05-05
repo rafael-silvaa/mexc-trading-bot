@@ -1,35 +1,30 @@
 //@version=5
-strategy("MEXC Breakout Bot - SOLUSDT v3.0", overlay=true, calc_on_every_tick=false, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=5, commission_type=strategy.commission.percent, commission_value=0.05)
+strategy("MEXC Mean Reversion Bot - SOLUSDT v4.0", overlay=true, calc_on_every_tick=false, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=5, commission_type=strategy.commission.percent, commission_value=0.05)
 
 // === INPUTS ===
-lookback = input.int(20, title="Períodos de Rompimento (Donchian)")
-vol_length = input.int(20, title="Períodos Média de Volume")
-sl_mult = input.float(2.0, title="Multiplicador do Stop Loss (ATR)", step=0.1)
-rr_ratio = input.float(2.0, title="Risco/Retorno (Take Profit)", step=0.1)
+bb_length = input.int(20, title="Períodos Bollinger Bands")
+bb_mult = input.float(2.5, title="Multiplicador BB (Extremos)", step=0.1) 
+rsi_len = input.int(14, title="Períodos RSI")
+rsi_ob = input.int(75, title="RSI Sobrecompra (Euforia)")
+rsi_os = input.int(25, title="RSI Sobrevenda (Pânico)")
+sl_mult = input.float(1.5, title="Stop Loss (ATR)", step=0.1)
+rr_ratio = input.float(1.2, title="Risco/Retorno", step=0.1) // Alvo mais curto para garantir a Win Rate
 
 // === INDICADORES ===
-ema200 = ta.ema(close, 200)
+[middle, upper, lower] = ta.bb(close, bb_length, bb_mult)
+rsi = ta.rsi(close, rsi_len)
 atr = ta.atr(14)
-vol_ma = ta.sma(volume, vol_length)
 
-// Canais de Donchian (Calcula a Máxima e Mínima dos últimos X períodos)
-// Usamos [1] para olhar para o passado e não incluir a vela que está a formar
-highest_high = ta.highest(high[1], lookback) 
-lowest_low = ta.lowest(low[1], lookback)
+plot(middle, color=color.yellow, title="Média BB")
+plot(upper, color=color.gray, title="Banda Superior")
+plot(lower, color=color.gray, title="Banda Inferior")
 
-plot(highest_high, color=color.green, title="Resistência", style=plot.style_stepline)
-plot(lowest_low, color=color.red, title="Suporte", style=plot.style_stepline)
-plot(ema200, color=color.white, title="EMA 200", linewidth=2)
+// === LÓGICA BOOLEANA (MEAN REVERSION) ===
+// LONG: Preço foi abaixo da banda inferior (Wick), fechou acima dela, e RSI está em pânico.
+longCond = (low < lower) and (close > lower) and (rsi < rsi_os)
 
-// === LÓGICA BOOLEANA (BREAKOUT) ===
-// Confirmação de anomalia de volume
-vol_spike = volume > vol_ma
-
-// LONG: Acima da EMA200, preço fecha ACIMA da resistência, COM volume extra.
-longCond = (close > ema200) and (close > highest_high) and vol_spike
-
-// SHORT: Abaixo da EMA200, preço fecha ABAIXO do suporte, COM volume extra.
-shortCond = (close < ema200) and (close < lowest_low) and vol_spike
+// SHORT: Preço foi acima da banda superior (Wick), fechou abaixo dela, e RSI está em euforia.
+shortCond = (high > upper) and (close < upper) and (rsi > rsi_ob)
 
 // === VARIÁVEIS DE ESTADO ===
 var float sl = na
