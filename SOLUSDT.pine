@@ -1,48 +1,64 @@
 //@version=5
-strategy("MEXC Mean Reversion Bot - SOLUSDT v4.0", overlay=true, calc_on_every_tick=false, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=5, commission_type=strategy.commission.percent, commission_value=0.05)
+strategy("MEXC Mean Reversion - Volume Climax v5.1", overlay=true, calc_on_every_tick=false, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=20, commission_type=strategy.commission.percent, commission_value=0.05)
 
-// === INPUTS ===
-bb_length = input.int(20, title="Períodos Bollinger Bands")
-bb_mult = input.float(2.5, title="Multiplicador BB (Extremos)", step=0.1) 
-rsi_len = input.int(14, title="Períodos RSI")
-rsi_ob = input.int(75, title="RSI Sobrecompra (Euforia)")
-rsi_os = input.int(25, title="RSI Sobrevenda (Pânico)")
-sl_mult = input.float(1.5, title="Stop Loss (ATR)", step=0.1)
-rr_ratio = input.float(1.2, title="Risco/Retorno", step=0.1) // Alvo mais curto para garantir a Win Rate
+// === INPUTS OTIMIZADOS (Baseados nos teus testes) ===
+bb_length = input.int(20, title="Períodos BB", group="Bandas e RSI")
+bb_mult = input.float(2.0, title="Multiplicador BB", step=0.1, group="Bandas e RSI") 
+rsi_len = input.int(14, title="Períodos RSI", group="Bandas e RSI")
+rsi_ob = input.int(75, title="RSI Sobrecompra", group="Bandas e RSI")
+rsi_os = input.int(27, title="RSI Sobrevenda", group="Bandas e RSI")
+
+// === NOVOS INPUTS: VOLUME ===
+use_vol_filter = input.bool(true, title="Ativar Filtro de Volume Clímax?", group="Filtros Extra")
+vol_length = input.int(20, title="Média de Volume (Períodos)", group="Filtros Extra")
+vol_mult = input.float(1.2, title="Multiplicador de Anomalia de Volume", step=0.1, tooltip="1.2 significa que o volume tem de ser 20% maior que a média", group="Filtros Extra")
+
+// === INPUTS: RISCO ===
+sl_mult = input.float(1.5, title="Stop Loss (ATR)", step=0.1, group="Gestão de Risco")
 
 // === INDICADORES ===
 [middle, upper, lower] = ta.bb(close, bb_length, bb_mult)
 rsi = ta.rsi(close, rsi_len)
 atr = ta.atr(14)
 
-plot(middle, color=color.yellow, title="Média BB")
+// Cálculo da Anomalia de Volume
+vol_sma = ta.sma(volume, vol_length)
+vol_anomaly = volume > (vol_sma * vol_mult)
+
+plot(middle, color=color.yellow, title="Média BB (Alvo)")
 plot(upper, color=color.gray, title="Banda Superior")
 plot(lower, color=color.gray, title="Banda Inferior")
 
-// === LÓGICA BOOLEANA (MEAN REVERSION) ===
-// LONG: Preço foi abaixo da banda inferior (Wick), fechou acima dela, e RSI está em pânico.
-longCond = (low < lower) and (close > lower) and (rsi < rsi_os)
+// === LÓGICA BOOLEANA (O "CÉREBRO") ===
+bullish_candle = close > open
+bearish_candle = close < open
 
-// SHORT: Preço foi acima da banda superior (Wick), fechou abaixo dela, e RSI está em euforia.
-shortCond = (high > upper) and (close < upper) and (rsi > rsi_ob)
+// Se o filtro estiver desligado, assume sempre "true"
+vol_ok = use_vol_filter ? vol_anomaly : true
+
+// Condições de Entrada
+longCond = (low < lower) and (close > lower) and (rsi < rsi_os) and bullish_candle and vol_ok
+shortCond = (high > upper) and (close < upper) and (rsi > rsi_ob) and bearish_candle and vol_ok
 
 // === VARIÁVEIS DE ESTADO ===
 var float sl = na
-var float tp = na
 
-// === MOTOR DE EXECUÇÃO ===
+// === MOTOR DE EXECUÇÃO: ENTRADAS ===
 if (longCond and strategy.position_size == 0)
     sl := close - (atr * sl_mult)
-    tp := close + ((close - sl) * rr_ratio) 
-    
     json_payload = '{"action": "LONG", "ticker": "' + syminfo.ticker + '", "price": ' + str.tostring(close) + '}'
     strategy.entry("Long", strategy.long, alert_message=json_payload)
-    strategy.exit("Exit Long", "Long", stop=sl, limit=tp)
+    strategy.exit("Exit Long SL", "Long", stop=sl) 
 
 if (shortCond and strategy.position_size == 0)
     sl := close + (atr * sl_mult)
-    tp := close - ((sl - close) * rr_ratio)
-    
     json_payload = '{"action": "SHORT", "ticker": "' + syminfo.ticker + '", "price": ' + str.tostring(close) + '}'
     strategy.entry("Short", strategy.short, alert_message=json_payload)
-    strategy.exit("Exit Short", "Short", stop=sl, limit=tp)
+    strategy.exit("Exit Short SL", "Short", stop=sl)
+
+// === MOTOR DE EXECUÇÃO: SAÍDAS DINÂMICAS ===
+if strategy.position_size > 0 and high >= middle
+    strategy.close("Long", comment="TP Mean")
+
+if strategy.position_size < 0 and low <= middle
+    strategy.close("Short", comment="TP Mean")
